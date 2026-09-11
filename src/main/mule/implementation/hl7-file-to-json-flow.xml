@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:java="http://www.mulesoft.org/schema/mule/java"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+		http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+		http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+
+	<!--
+		Polls hl7.input.directory for *.hl7 files, parses each one to JSON with the HAPI
+		HL7v2 library (see com.plative.hl7poc.Hl7ToJsonConverter), and writes a same-named
+		.json file to hl7.output.directory. Processed files are moved to hl7.processed.directory
+		so they are not picked up again.
+	-->
+	<flow name="hl7-file-to-json-flow" doc:name="hl7-file-to-json-flow">
+
+		<file:listener doc:name="On new HL7 file" config-ref="HL7_File_Config"
+			directory="${hl7.input.directory}"
+			moveToDirectory="${hl7.processed.directory}"
+			autoDelete="false">
+			<scheduling-strategy>
+				<fixed-frequency frequency="${hl7.poll.frequencyMillis}" />
+			</scheduling-strategy>
+			<file:matcher filenamePattern="*.hl7" />
+		</file:listener>
+
+		<set-variable variableName="sourceFileName" value="#[attributes.fileName]" doc:name="Save source file name" />
+
+		<set-payload value="#[payload as String {encoding: &quot;UTF-8&quot;}]" doc:name="Read file as text" />
+
+		<try doc:name="Try">
+			<java:invoke-static doc:name="Convert HL7 to JSON"
+				class="com.plative.hl7poc.Hl7ToJsonConverter"
+				method="convertToJson(String)">
+				<java:args><![CDATA[#[{
+					arg0: payload
+				}]]]></java:args>
+			</java:invoke-static>
+
+			<ee:transform doc:name="Pretty-print JSON">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+read(payload, "application/json")]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+
+			<file:write doc:name="Write JSON output" config-ref="HL7_File_Config"
+				path="#['${hl7.output.directory}/' ++ vars.sourceFileName ++ '.json']"
+				mode="OVERWRITE" />
+
+			<logger level="INFO" doc:name="Log success"
+				message="#['Parsed ' ++ vars.sourceFileName ++ ' to JSON successfully']" />
+
+			<error-handler>
+				<on-error-continue doc:name="Log and continue">
+					<logger level="ERROR" doc:name="Log failure"
+						message="#['Failed to parse ' ++ (vars.sourceFileName default 'unknown file') ++ ': ' ++ error.description]" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+
+	</flow>
+
+</mule>

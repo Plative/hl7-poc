@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:java="http://www.mulesoft.org/schema/mule/java"
+	xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd
+		http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+
+	<!--
+		Polls json.input.directory for *.json files (in the shape produced by
+		hl7-file-to-json-flow / com.plative.hl7poc.Hl7ToJsonConverter), converts each back
+		to an HL7 v2.x ER7 message with the HAPI HL7v2 library (see
+		com.plative.hl7poc.JsonToHl7Converter), and writes a same-named .hl7 file to
+		json.output.directory. Processed files are moved to json.processed.directory so
+		they are not picked up again.
+	-->
+	<flow name="json-to-hl7-file-flow" doc:name="json-to-hl7-file-flow">
+
+		<file:listener doc:name="On new JSON file" config-ref="HL7_File_Config"
+			directory="${json.input.directory}"
+			moveToDirectory="${json.processed.directory}"
+			autoDelete="false">
+			<scheduling-strategy>
+				<fixed-frequency frequency="${json.poll.frequencyMillis}" />
+			</scheduling-strategy>
+			<file:matcher filenamePattern="*.json" />
+		</file:listener>
+
+		<set-variable variableName="sourceFileName" value="#[attributes.fileName]" doc:name="Save source file name" />
+
+		<set-payload value="#[payload as String {encoding: &quot;UTF-8&quot;}]" doc:name="Read file as text" />
+
+		<try doc:name="Try">
+			<java:invoke-static doc:name="Convert JSON to HL7"
+				class="com.plative.hl7poc.JsonToHl7Converter"
+				method="convertToHl7(String)">
+				<java:args><![CDATA[#[{
+					arg0: payload
+				}]]]></java:args>
+			</java:invoke-static>
+
+			<file:write doc:name="Write HL7 output" config-ref="HL7_File_Config"
+				path="#['${json.output.directory}/' ++ vars.sourceFileName ++ '.hl7']"
+				mode="OVERWRITE" />
+
+			<logger level="INFO" doc:name="Log success"
+				message="#['Converted ' ++ vars.sourceFileName ++ ' to HL7 successfully']" />
+
+			<error-handler>
+				<on-error-continue doc:name="Log and continue">
+					<logger level="ERROR" doc:name="Log failure"
+						message="#['Failed to convert ' ++ (vars.sourceFileName default 'unknown file') ++ ': ' ++ error.description]" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+
+	</flow>
+
+</mule>

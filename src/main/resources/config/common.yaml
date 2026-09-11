@@ -1,0 +1,45 @@
+hl7:
+  workingDirectory: "./hl7-files"
+  input:
+    directory: "input"
+  output:
+    directory: "output"
+  processed:
+    directory: "processed"
+  poll:
+    frequencyMillis: "5000"
+
+json:
+  input:
+    directory: "json-input"
+  output:
+    directory: "hl7-output"
+  processed:
+    directory: "json-processed"
+  poll:
+    frequencyMillis: "5000"
+
+hl7v3:
+  input:
+    directory: "v3-input"
+  output:
+    directory: "v3-output"
+  processed:
+    directory: "v3-processed"
+  poll:
+    frequencyMillis: "5000"
+
+jsonv3:
+  input:
+    directory: "json-v3-input"
+  output:
+    directory: "v3-hl7-output"
+  processed:
+    directory: "json-v3-processed"
+  poll:
+    frequencyMillis: "5000"
+
+http:
+  listener:
+    host: "0.0.0.0"
+    port: "8081"

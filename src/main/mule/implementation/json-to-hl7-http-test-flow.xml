@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:java="http://www.mulesoft.org/schema/mule/java"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+		http://www.mulesoft.org/schema/mule/java http://www.mulesoft.org/schema/mule/java/current/mule-java.xsd">
+
+	<!--
+		Manual test entry point for the HAPI-based JSON-to-HL7 conversion: POST a JSON
+		document (in the shape produced by hl7-http-test-flow / Hl7ToJsonConverter) and get
+		back the equivalent HL7 ER7 message as text/plain. Useful for quickly validating
+		com.plative.hl7poc.JsonToHl7Converter without waiting on the file poller.
+
+		curl request, JSON body, against http://localhost:8081/json/to-hl7 (see README.md)
+	-->
+	<flow name="json-to-hl7-http-test-flow" doc:name="json-to-hl7-http-test-flow">
+
+		<http:listener doc:name="POST /json/to-hl7" config-ref="HTTP_Listener_config" path="/json/to-hl7" allowedMethods="POST">
+			<http:error-response statusCode="#[vars.httpStatus default 500]">
+				<http:body><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+
+		<set-payload value="#[payload as String {encoding: &quot;UTF-8&quot;}]" doc:name="Read request body as text" />
+
+		<try doc:name="Try">
+			<java:invoke-static doc:name="Convert JSON to HL7"
+				class="com.plative.hl7poc.JsonToHl7Converter"
+				method="convertToHl7(String)">
+				<java:args><![CDATA[#[{
+					arg0: payload
+				}]]]></java:args>
+			</java:invoke-static>
+
+			<set-payload value="#[payload as String]" mimeType="text/plain" doc:name="Set text/plain response" />
+
+			<error-handler>
+				<on-error-propagate doc:name="Return 400 with error detail" type="MULE:ANY">
+					<ee:transform doc:name="Build error response">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	error: error.description
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<set-variable variableName="httpStatus" value="400" doc:name="Set HTTP 400" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+
+	</flow>
+
+</mule>

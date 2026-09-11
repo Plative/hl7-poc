@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+		http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd">
+
+	<!--
+		Manual test entry point for HL7 v3 to JSON: POST a raw HL7 v3 (CDA or other RIM-based)
+		XML document and get back its JSON representation. Pure DataWeave, no HAPI/Java
+		involved - see hl7v3-to-json-file-flow.xml for why.
+
+		curl request, "data binary" flag, an HL7 v3 XML file, against http://localhost:8081/hl7v3/parse
+	-->
+	<flow name="hl7v3-http-test-flow" doc:name="hl7v3-http-test-flow">
+
+		<http:listener doc:name="POST /hl7v3/parse" config-ref="HTTP_Listener_config" path="/hl7v3/parse" allowedMethods="POST">
+			<http:error-response statusCode="#[vars.httpStatus default 500]">
+				<http:body><![CDATA[#[payload]]]></http:body>
+			</http:error-response>
+		</http:listener>
+
+		<try doc:name="Try">
+			<ee:transform doc:name="Convert HL7 v3 XML to JSON">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+read(payload, "application/xml")]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+
+			<error-handler>
+				<on-error-propagate doc:name="Return 400 with error detail" type="MULE:ANY">
+					<ee:transform doc:name="Build error response">
+						<ee:message>
+							<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+{
+	error: error.description
+}]]></ee:set-payload>
+						</ee:message>
+					</ee:transform>
+					<set-variable variableName="httpStatus" value="400" doc:name="Set HTTP 400" />
+				</on-error-propagate>
+			</error-handler>
+		</try>
+
+	</flow>
+
+</mule>

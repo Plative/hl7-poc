@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="
+		http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+		http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+		http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+
+	<!--
+		Reverse of hl7v3-to-json-file-flow.xml: polls jsonv3.input.directory for *.json
+		files (in the shape produced by that flow) and writes back an HL7 v3 XML document
+		to jsonv3.output.directory, moving the source file to jsonv3.processed.directory.
+		Pure DataWeave (DW's JSON reader / XML writer are natural inverses of each other),
+		no HAPI/Java involved - HL7 v3 is plain XML, unrelated to the HAPI HL7v2 library
+		used for the HL7 v2 flows.
+	-->
+	<flow name="json-to-hl7v3-file-flow" doc:name="json-to-hl7v3-file-flow">
+
+		<file:listener doc:name="On new JSON file" config-ref="HL7_File_Config"
+			directory="${jsonv3.input.directory}"
+			moveToDirectory="${jsonv3.processed.directory}"
+			autoDelete="false">
+			<scheduling-strategy>
+				<fixed-frequency frequency="${jsonv3.poll.frequencyMillis}" />
+			</scheduling-strategy>
+			<file:matcher filenamePattern="*.json" />
+		</file:listener>
+
+		<set-variable variableName="sourceFileName" value="#[attributes.fileName]" doc:name="Save source file name" />
+
+		<try doc:name="Try">
+			<ee:transform doc:name="Convert JSON to HL7 v3 XML">
+				<ee:message>
+					<ee:set-payload><![CDATA[%dw 2.0
+output application/xml
+---
+read(payload, "application/json")]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+
+			<file:write doc:name="Write HL7 v3 XML output" config-ref="HL7_File_Config"
+				path="#['${jsonv3.output.directory}/' ++ vars.sourceFileName ++ '.xml']"
+				mode="OVERWRITE" />
+
+			<logger level="INFO" doc:name="Log success"
+				message="#['Converted ' ++ vars.sourceFileName ++ ' to HL7 v3 XML successfully']" />
+
+			<error-handler>
+				<on-error-continue doc:name="Log and continue">
+					<logger level="ERROR" doc:name="Log failure"
+						message="#['Failed to convert ' ++ (vars.sourceFileName default 'unknown file') ++ ': ' ++ error.description]" />
+				</on-error-continue>
+			</error-handler>
+		</try>
+
+	</flow>
+
+</mule>
